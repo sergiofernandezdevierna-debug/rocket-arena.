@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Rocket Arena</title>
+<style>
+*{box-sizing:border-box;touch-action:none}
+body{margin:0;overflow:hidden;background:#101827;font-family:Arial;color:white}
+canvas{display:block;width:100vw;height:100vh}
+#ui{position:fixed;inset:0;pointer-events:none}
+button{
+  pointer-events:auto;border:2px solid #ffffff55;border-radius:50%;
+  background:#17243ddd;color:white;font-weight:bold;
+  width:72px;height:72px;font-size:13px
+}
+#boost{position:absolute;right:25px;bottom:25px;width:90px;height:90px}
+#jump{position:absolute;right:130px;bottom:35px}
+#flip{position:absolute;right:215px;bottom:80px}
+#reset{position:absolute;right:25px;top:20px;width:65px;height:45px;border-radius:12px}
+#left,#right,#forward,#back{
+ position:absolute;width:65px;height:65px;border-radius:18px
+}
+#left{left:20px;bottom:75px}
+#right{left:165px;bottom:75px}
+#forward{left:92px;bottom:140px}
+#back{left:92px;bottom:20px}
+#score{position:absolute;top:15px;left:50%;transform:translateX(-50%);
+font-size:28px;font-weight:bold}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="ui">
+ <div id="score">0 - 0</div>
+ <button id="reset">RESET</button>
+ <button id="left">◀</button>
+ <button id="right">▶</button>
+ <button id="forward">▲</button>
+ <button id="back">▼</button>
+ <button id="flip">FLIP</button>
+ <button id="jump">JUMP</button>
+ <button id="boost">BOOST</button>
+</div>
+
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+
+let W,H;
+function resize(){
+ W=canvas.width=innerWidth*devicePixelRatio;
+ H=canvas.height=innerHeight*devicePixelRatio;
+ ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+ W=innerWidth;H=innerHeight;
+}
+addEventListener("resize",resize);resize();
+
+const keys={};
+const touch={left:0,right:0,forward:0,back:0,boost:0};
+
+function hold(id,key){
+ const b=document.getElementById(id);
+ b.addEventListener("pointerdown",e=>{e.preventDefault();touch[key]=1});
+ b.addEventListener("pointerup",e=>{e.preventDefault();touch[key]=0});
+ b.addEventListener("pointercancel",()=>touch[key]=0);
+ b.addEventListener("pointerleave",()=>touch[key]=0);
+}
+hold("left","left");hold("right","right");
+hold("forward","forward");hold("back","back");hold("boost","boost");
+
+addEventListener("keydown",e=>{
+ keys[e.key.toLowerCase()]=1;
+ if(e.key===" ") jump();
+ if(e.key.toLowerCase()==="f") flip();
+ if(e.key.toLowerCase()==="r") reset();
+});
+addEventListener("keyup",e=>keys[e.key.toLowerCase()]=0);
+
+let car,ball,score=[0,0];
+
+function reset(){
+ car={
+  x:W/2,y:H*0.70,vx:0,vy:0,
+  angle:-Math.PI/2,
+  speed:0,
+  z:0,vz:0,
+  boost:100,
+  grounded:true,
+  flips:0
+ };
+ ball={x:W/2,y:H*0.35,vx:0,vy:0,r:20};
+}
+reset();
+
+function jump(){
+ if(car.grounded){
+   car.vz=9;
+   car.grounded=false;
+ }else if(car.flips<1){
+   car.vz=7;
+   car.flips++;
+ }
+}
+
+function flip(){
+ if(!car.grounded){
+   let dir=keys["arrowleft"]?-1:1;
+   car.vx+=Math.cos(car.angle)*7;
+   car.vy+=Math.sin(car.angle)*7;
+   car.vz+=3;
+ }
+}
+
+document.getElementById("jump").onclick=jump;
+document.getElementById("flip").onclick=flip;
+document.getElementById("reset").onclick=reset;
+
+function update(){
+ let dt=1/60;
+
+ let left=touch.left||keys["arrowleft"]||keys["a"];
+ let right=touch.right||keys["arrowright"]||keys["d"];
+ let forward=touch.forward||keys["arrowup"]||keys["w"];
+ let back=touch.back||keys["arrowdown"]||keys["s"];
+ let boosting=touch.boost||keys["shift"];
+
+ if(left) car.angle-=0.055;
+ if(right) car.angle+=0.055;
+
+ let acceleration=0;
+ if(forward) acceleration=0.34;
+ if(back) acceleration=-0.20;
+
+ car.vx+=Math.cos(car.angle)*acceleration;
+ car.vy+=Math.sin(car.angle)*acceleration;
+
+ let maxSpeed=7;
+
+ if(boosting && car.boost>0){
+   car.vx+=Math.cos(car.angle)*0.48;
+   car.vy+=Math.sin(car.angle)*0.48;
+   car.boost-=0.7;
+ }else{
+   car.boost=Math.min(100,car.boost+0.08);
+ }
+
+ let sp=Math.hypot(car.vx,car.vy);
+ if(sp>maxSpeed){
+   car.vx=car.vx/sp*maxSpeed;
+   car.vy=car.vy/sp*maxSpeed;
+ }
+
+ car.x+=car.vx;
+ car.y+=car.vy;
+
+ car.vx*=0.985;
+ car.vy*=0.985;
+
+ car.vz-=0.35;
+ car.z+=car.vz;
+
+ if(car.z<=0){
+   car.z=0;
+   car.vz=0;
+   car.grounded=true;
+   car.flips=0;
+ }
+
+ // paredes
+ if(car.x<35){car.x=35;car.vx=Math.abs(car.vx)*0.7}
+ if(car.x>W-35){car.x=W-35;car.vx=-Math.abs(car.vx)*0.7}
+ if(car.y<80){car.y=80;car.vy=Math.abs(car.vy)*0.7}
+ if(car.y>H-35){car.y=H-35;car.vy=-Math.abs(car.vy)*0.7}
+
+ // balón
+ ball.x+=ball.vx;
+ ball.y+=ball.vy;
+ ball.vx*=0.993;
+ ball.vy*=0.993;
+
+ if(ball.x<22){ball.x=22;ball.vx=Math.abs(ball.vx)}
+ if(ball.x>W-22){ball.x=W-22;ball.vx=-Math.abs(ball.vx)}
+ if(ball.y<65){
+   ball.y=65;ball.vy=Math.abs(ball.vy);
+ }
+ if(ball.y>H-22){
+   ball.y=H-22;ball.vy=-Math.abs(ball.vy);
+ }
+
+ // golpe coche-balón
+ let dx=ball.x-car.x;
+ let dy=ball.y-car.y;
+ let dist=Math.hypot(dx,dy);
+ if(dist<45 && car.z<35){
+   let nx=dx/(dist||1),ny=dy/(dist||1);
+   let power=4+Math.hypot(car.vx,car.vy)*0.8;
+   ball.vx+=nx*power+car.vx*0.5;
+   ball.vy+=ny*power+car.vy*0.5;
+   ball.x=car.x+nx*46;
+   ball.y=car.y+ny*46;
+ }
+
+ // goles
+ if(ball.y<5){
+   score[0]++;
+   document.getElementById("score").textContent=score[0]+" - "+score[1];
+   reset();
+ }
+ if(ball.y>H-5){
+   score[1]++;
+   document.getElementById("score").textContent=score[0]+" - "+score[1];
+   reset();
+ }
+}
+
+function draw(){
+ ctx.clearRect(0,0,W,H);
+
+ // campo
+ ctx.fillStyle="#167447";
+ ctx.fillRect(0,0,W,H);
+
+ // líneas
+ ctx.strokeStyle="rgba(255,255,255,.45)";
+ ctx.lineWidth=3;
+ ctx.strokeRect(25,55,W-50,H-80);
+
+ ctx.beginPath();
+ ctx.moveTo(25,H/2);ctx.lineTo(W-25,H/2);
+ ctx.stroke();
+
+ ctx.beginPath();
+ ctx.arc(W/2,H/2,65,0,Math.PI*2);
+ ctx.stroke();
+
+ // porterías
+ ctx.strokeStyle="white";
+ ctx.strokeRect(W/2-100,55,200,35);
+ ctx.strokeRect(W/2-100,H-110,200,35);
+
+ // sombra coche
+ ctx.fillStyle="rgba(0,0,0,.25)";
+ ctx.beginPath();
+ ctx.ellipse(car.x,car.y+15,28,10,0,0,Math.PI*2);
+ ctx.fill();
+
+ // coche
+ ctx.save();
+ ctx.translate(car.x,car.y-car.z);
+ ctx.rotate(car.angle);
+
+ ctx.fillStyle="#e43d30";
+ ctx.fillRect(-25,-14,50,28);
+
+ ctx.fillStyle="#222";
+ ctx.fillRect(-10,-11,20,22);
+
+ ctx.fillStyle="#111";
+ ctx.beginPath();ctx.arc(-17,-15,7,0,Math.PI*2);ctx.fill();
+ ctx.beginPath();ctx.arc(17,-15,7,0,Math.PI*2);ctx.fill();
+ ctx.beginPath();ctx.arc(-17,15,7,0,Math.PI*2);ctx.fill();
+ ctx.beginPath();ctx.arc(17,15,7,0,Math.PI*2);ctx.fill();
+
+ if(touch.boost||keys["shift"]){
+   ctx.fillStyle="orange";
+   ctx.beginPath();
+   ctx.moveTo(-25,0);ctx.lineTo(-42,-7);ctx.lineTo(-38,0);
+   ctx.lineTo(-42,7);ctx.closePath();ctx.fill();
+ }
+ ctx.restore();
+
+ // balón
+ ctx.fillStyle="white";
+ ctx.beginPath();
+ ctx.arc(ball.x,ball.y,ball.r,0,Math.PI*2);
+ ctx.fill();
+
+ ctx.strokeStyle="#222";
+ ctx.lineWidth=3;
+ ctx.stroke();
+
+ // turbo
+ ctx.fillStyle="rgba(0,0,0,.5)";
+ ctx.fillRect(20,H-145,120,15);
+ ctx.fillStyle="#ffd21f";
+ ctx.fillRect(20,H-145,120*car.boost/100,15);
+ ctx.fillStyle="white";
+ ctx.font="12px Arial";
+ ctx.fillText("BOOST",20,H-150);
+}
+
+function loop(){
+ update();
+ draw();
+ requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+   </html>
