@@ -6,10 +6,17 @@
 <title>Rocket Arena</title>
 
 <style>
-*{box-sizing:border-box;touch-action:none}
+*{
+  box-sizing:border-box;
+  touch-action:none;
+  user-select:none;
+}
 
-body{
+html,body{
   margin:0;
+  padding:0;
+  width:100%;
+  height:100%;
   overflow:hidden;
   background:#101827;
   font-family:Arial,sans-serif;
@@ -22,12 +29,823 @@ canvas{
   height:100vh;
 }
 
-#ui{
+#score{
+  position:fixed;
+  top:15px;
+  left:50%;
+  transform:translateX(-50%);
+  font-size:30px;
+  font-weight:bold;
+  background:rgba(0,0,0,.45);
+  padding:8px 22px;
+  border-radius:15px;
+  z-index:5;
+}
+
+#boost{
+  position:fixed;
+  top:65px;
+  left:50%;
+  transform:translateX(-50%);
+  width:150px;
+  height:13px;
+  border:2px solid white;
+  border-radius:10px;
+  overflow:hidden;
+  z-index:5;
+}
+
+#boostBar{
+  width:100%;
+  height:100%;
+  background:#ffd21f;
+}
+
+#reset{
+  position:fixed;
+  top:100px;
+  left:50%;
+  transform:translateX(-50%);
+  font-size:13px;
+  opacity:.8;
+}
+
+.controls{
   position:fixed;
   inset:0;
   pointer-events:none;
+  z-index:10;
 }
 
+.btn{
+  position:absolute;
+  width:72px;
+  height:72px;
+  border-radius:50%;
+  border:2px solid rgba(255,255,255,.7);
+  background:rgba(255,255,255,.16);
+  color:white;
+  font-size:14px;
+  font-weight:bold;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  pointer-events:auto;
+}
+
+.btn:active{
+  background:rgba(255,255,255,.35);
+}
+
+#left{left:20px;bottom:35px}
+#right{left:105px;bottom:35px}
+#jump{right:115px;bottom:35px}
+#boostBtn{right:25px;bottom:120px}
+#flip{right:25px;bottom:35px}
+
+@media(min-width:800px){
+  .btn{
+    opacity:.55;
+  }
+}
+</style>
+</head>
+
+<body>
+
+<canvas id="game"></canvas>
+
+<div id="score">AZUL 0 — 0 ROJO</div>
+
+<div id="boost">
+  <div id="boostBar"></div>
+</div>
+
+<div id="reset">RESET: listo</div>
+
+<div class="controls">
+  <div class="btn" id="left">◀</div>
+  <div class="btn" id="right">▶</div>
+  <div class="btn" id="jump">SALTO</div>
+  <div class="btn" id="boostBtn">BOOST</div>
+  <div class="btn" id="flip">FLIP</div>
+</div>
+
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+
+let W,H;
+
+function resize(){
+  W=canvas.width=innerWidth;
+  H=canvas.height=innerHeight;
+}
+
+addEventListener("resize",resize);
+resize();
+
+const keys={};
+
+addEventListener("keydown",e=>{
+  keys[e.key.toLowerCase()]=true;
+
+  if(e.key===" "){
+    e.preventDefault();
+    jump();
+  }
+
+  if(e.key.toLowerCase()==="shift"){
+    boost();
+  }
+
+  if(e.key.toLowerCase()==="f"){
+    flip();
+  }
+
+  if(e.key.toLowerCase()==="r"){
+    resetPlayer();
+  }
+});
+
+addEventListener("keyup",e=>{
+  keys[e.key.toLowerCase()]=false;
+});
+
+
+/* =========================
+   JUEGO
+========================= */
+
+const player={
+  x:180,
+  y:0,
+  vx:0,
+  vy:0,
+  w:58,
+  h:32,
+  angle:0,
+  angular:0,
+  grounded:false,
+  jumps:2,
+  boost:100,
+  flipTimer:0
+};
+
+const ball={
+  x:0,
+  y:0,
+  vx:0,
+  vy:0,
+  r:17
+};
+
+let blueScore=0;
+let redScore=0;
+
+const gravity=.48;
+const groundHeight=90;
+
+let particles=[];
+
+function groundY(){
+  return H-groundHeight;
+}
+
+function resetBall(){
+  ball.x=W/2;
+  ball.y=groundY()-150;
+  ball.vx=0;
+  ball.vy=0;
+}
+
+function resetPlayer(){
+  player.x=180;
+  player.y=groundY()-player.h;
+  player.vx=0;
+  player.vy=0;
+  player.angle=0;
+  player.angular=0;
+  player.jumps=2;
+  player.boost=100;
+  player.flipTimer=0;
+}
+
+function resetGame(){
+  resetPlayer();
+  resetBall();
+}
+
+resetGame();
+
+
+/* =========================
+   CONTROLES
+========================= */
+
+function jump(){
+
+  if(player.jumps>0){
+
+    player.vy=-11;
+
+    player.jumps--;
+
+    player.grounded=false;
+
+    createParticles(
+      player.x+player.w/2,
+      player.y+player.h
+    );
+  }
+}
+
+function boost(){
+
+  if(player.boost<=0)return;
+
+  player.boost-=1.5;
+
+  const power=1.25;
+
+  player.vx+=Math.cos(player.angle)*power;
+  player.vy+=Math.sin(player.angle)*power;
+
+  createParticles(
+    player.x,
+    player.y+player.h/2
+  );
+}
+
+function flip(){
+
+  if(player.flipTimer>0)return;
+
+  player.flipTimer=25;
+
+  player.vx+=Math.cos(player.angle)*7;
+  player.vy+=Math.sin(player.angle)*7;
+
+  player.angular+=.25;
+}
+
+
+/* =========================
+   BOTÓN MÓVIL
+========================= */
+
+function holdButton(id,down,up){
+
+  const el=document.getElementById(id);
+
+  el.addEventListener("pointerdown",e=>{
+    e.preventDefault();
+    down();
+  });
+
+  el.addEventListener("pointerup",e=>{
+    e.preventDefault();
+    up();
+  });
+
+  el.addEventListener("pointercancel",up);
+  el.addEventListener("pointerleave",up);
+}
+
+holdButton(
+  "left",
+  ()=>keys["arrowleft"]=true,
+  ()=>keys["arrowleft"]=false
+);
+
+holdButton(
+  "right",
+  ()=>keys["arrowright"]=true,
+  ()=>keys["arrowright"]=false
+);
+
+holdButton(
+  "boostBtn",
+  ()=>keys["shift"]=true,
+  ()=>keys["shift"]=false
+);
+
+document.getElementById("jump")
+.addEventListener("pointerdown",e=>{
+  e.preventDefault();
+  jump();
+});
+
+document.getElementById("flip")
+.addEventListener("pointerdown",e=>{
+  e.preventDefault();
+  flip();
+});
+
+
+/* =========================
+   FÍSICA DEL COCHE
+========================= */
+
+function updatePlayer(){
+
+  const left=keys["arrowleft"]||keys["a"];
+  const right=keys["arrowright"]||keys["d"];
+
+  if(left){
+    player.vx-=.38;
+    player.angular-=.012;
+  }
+
+  if(right){
+    player.vx+=.38;
+    player.angular+=.012;
+  }
+
+  if(keys["shift"]){
+    boost();
+  }
+
+  if(player.boost<100){
+    player.boost+=.18;
+  }
+
+  player.vy+=gravity;
+
+  player.x+=player.vx;
+  player.y+=player.vy;
+
+  player.angle+=player.angular;
+
+  player.vx*=.985;
+  player.vy*=.995;
+  player.angular*=.94;
+
+  if(player.x<0){
+    player.x=0;
+    player.vx*=-.5;
+  }
+
+  if(player.x+player.w>W){
+    player.x=W-player.w;
+    player.vx*=-.5;
+  }
+
+  if(player.y+player.h>=groundY()){
+
+    player.y=groundY()-player.h;
+
+    if(player.vy>3){
+      createParticles(
+        player.x+player.w/2,
+        groundY()
+      );
+    }
+
+    player.vy=0;
+    player.grounded=true;
+    player.jumps=2;
+
+    player.angular*=.7;
+
+    if(Math.abs(player.angle)>Math.PI*2){
+      player.angle=0;
+    }
+  }else{
+    player.grounded=false;
+  }
+
+  if(player.flipTimer>0){
+    player.flipTimer--;
+  }
+}
+
+
+/* =========================
+   BALÓN
+========================= */
+
+function updateBall(){
+
+  ball.vy+=gravity*.7;
+
+  ball.x+=ball.vx;
+  ball.y+=ball.vy;
+
+  ball.vx*=.995;
+  ball.vy*=.998;
+
+  if(ball.y+ball.r>groundY()){
+
+    ball.y=groundY()-ball.r;
+
+    if(Math.abs(ball.vy)>2){
+      ball.vy*=-.72;
+    }else{
+      ball.vy=0;
+    }
+
+    ball.vx*=.98;
+  }
+
+  if(ball.x-ball.r<0){
+    ball.x=ball.r;
+    ball.vx=Math.abs(ball.vx)*.85;
+  }
+
+  if(ball.x+ball.r>W){
+    ball.x=W-ball.r;
+    ball.vx=-Math.abs(ball.vx)*.85;
+  }
+
+  collideCarBall();
+}
+
+
+/* =========================
+   COLISIÓN
+========================= */
+
+function collideCarBall(){
+
+  const cx=player.x+player.w/2;
+  const cy=player.y+player.h/2;
+
+  const dx=ball.x-cx;
+  const dy=ball.y-cy;
+
+  const distance=Math.sqrt(dx*dx+dy*dy);
+
+  const minDistance=ball.r+25;
+
+  if(distance<minDistance){
+
+    let nx=dx/distance;
+    let ny=dy/distance;
+
+    if(!isFinite(nx)){
+      nx=1;
+      ny=0;
+    }
+
+    const overlap=minDistance-distance;
+
+    ball.x+=nx*overlap;
+    ball.y+=ny*overlap;
+
+    const speed=Math.sqrt(
+      player.vx*player.vx+
+      player.vy*player.vy
+    );
+
+    const force=3+speed*.45;
+
+    ball.vx+=nx*force;
+    ball.vy+=ny*force;
+
+    player.vx-=nx*.08;
+    player.vy-=ny*.08;
+
+    createParticles(ball.x,ball.y);
+  }
+}
+
+
+/* =========================
+   GOLES
+========================= */
+
+function checkGoal(){
+
+  const goalSize=170;
+
+  if(ball.x<goalSize && ball.y>groundY()-110){
+
+    redScore++;
+
+    updateScore();
+
+    goalEffect(80,groundY()-50);
+
+    resetGame();
+
+    return;
+  }
+
+  if(ball.x>W-goalSize && ball.y>groundY()-110){
+
+    blueScore++;
+
+    updateScore();
+
+    goalEffect(W-80,groundY()-50);
+
+    resetGame();
+  }
+}
+
+function updateScore(){
+
+  document.getElementById("score").textContent=
+    "AZUL "+blueScore+" — "+redScore+" ROJO";
+}
+
+
+/* =========================
+   PARTÍCULAS
+========================= */
+
+function createParticles(x,y){
+
+  for(let i=0;i<5;i++){
+
+    particles.push({
+      x,
+      y,
+      vx:(Math.random()-.5)*5,
+      vy:(Math.random()-.5)*5,
+      life:25
+    });
+  }
+}
+
+function goalEffect(x,y){
+
+  for(let i=0;i<40;i++){
+
+    particles.push({
+      x,
+      y,
+      vx:(Math.random()-.5)*12,
+      vy:(Math.random()-.5)*12,
+      life:60
+    });
+  }
+}
+
+function updateParticles(){
+
+  for(let i=particles.length-1;i>=0;i--){
+
+    const p=particles[i];
+
+    p.x+=p.vx;
+    p.y+=p.vy;
+
+    p.vy+=.15;
+
+    p.life--;
+
+    if(p.life<=0){
+      particles.splice(i,1);
+    }
+  }
+}
+
+
+/* =========================
+   DIBUJO
+========================= */
+
+function drawBackground(){
+
+  const gradient=ctx.createLinearGradient(0,0,0,H);
+
+  gradient.addColorStop(0,"#07111f");
+  gradient.addColorStop(1,"#18304b");
+
+  ctx.fillStyle=gradient;
+  ctx.fillRect(0,0,W,H);
+
+  // Luna
+  ctx.fillStyle="#ffffff";
+  ctx.beginPath();
+  ctx.arc(W-100,80,35,0,Math.PI*2);
+  ctx.fill();
+
+  // Estrellas
+  ctx.fillStyle="rgba(255,255,255,.8)";
+
+  for(let i=0;i<35;i++){
+
+    const x=(i*137)%W;
+    const y=(i*71)%(H-groundHeight-100);
+
+    ctx.fillRect(x,y,2,2);
+  }
+}
+
+function drawArena(){
+
+  const gy=groundY();
+
+  ctx.fillStyle="#15283b";
+  ctx.fillRect(0,gy,W,groundHeight);
+
+  ctx.fillStyle="#263f55";
+  ctx.fillRect(0,gy,W,6);
+
+  // líneas
+  ctx.strokeStyle="rgba(255,255,255,.18)";
+  ctx.lineWidth=3;
+
+  for(let x=0;x<W;x+=80){
+
+    ctx.beginPath();
+    ctx.moveTo(x,gy);
+    ctx.lineTo(x+40,H);
+    ctx.stroke();
+  }
+
+  // porterías
+  ctx.strokeStyle="#36a9ff";
+  ctx.lineWidth=7;
+
+  ctx.strokeRect(
+    0,
+    gy-105,
+    70,
+    105
+  );
+
+  ctx.strokeStyle="#ff4040";
+
+  ctx.strokeRect(
+    W-70,
+    gy-105,
+    70,
+    105
+  );
+}
+
+function drawCar(){
+
+  ctx.save();
+
+  const cx=player.x+player.w/2;
+  const cy=player.y+player.h/2;
+
+  ctx.translate(cx,cy);
+  ctx.rotate(player.angle);
+
+  // sombra
+  ctx.fillStyle="rgba(0,0,0,.3)";
+  ctx.fillRect(-30,18,60,7);
+
+  // carrocería
+  ctx.fillStyle="#2d8cff";
+
+  ctx.beginPath();
+  ctx.roundRect(
+    -30,
+    -16,
+    60,
+    32,
+    9
+  );
+  ctx.fill();
+
+  // techo
+  ctx.fillStyle="#9bd5ff";
+
+  ctx.beginPath();
+  ctx.moveTo(-13,-16);
+  ctx.lineTo(-4,-28);
+  ctx.lineTo(16,-28);
+  ctx.lineTo(24,-16);
+  ctx.closePath();
+  ctx.fill();
+
+  // ruedas
+  ctx.fillStyle="#111";
+
+  ctx.beginPath();
+  ctx.arc(-20,17,9,0,Math.PI*2);
+  ctx.arc(20,17,9,0,Math.PI*2);
+  ctx.fill();
+
+  // fuego del turbo
+  if(keys["shift"] && player.boost>0){
+
+    ctx.fillStyle="#ffb300";
+
+    ctx.beginPath();
+    ctx.moveTo(-30,-7);
+    ctx.lineTo(-50,0);
+    ctx.lineTo(-30,7);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
+function drawBall(){
+
+  const gradient=ctx.createRadialGradient(
+    ball.x-5,
+    ball.y-6,
+    2,
+    ball.x,
+    ball.y,
+    ball.r
+  );
+
+  gradient.addColorStop(0,"#ffffff");
+  gradient.addColorStop(1,"#b8c3d1");
+
+  ctx.fillStyle=gradient;
+
+  ctx.beginPath();
+  ctx.arc(
+    ball.x,
+    ball.y,
+    ball.r,
+    0,
+    Math.PI*2
+  );
+
+  ctx.fill();
+
+  ctx.strokeStyle="#555";
+  ctx.lineWidth=2;
+  ctx.stroke();
+}
+
+function drawParticles(){
+
+  for(const p of particles){
+
+    ctx.globalAlpha=Math.max(0,p.life/60);
+
+    ctx.fillStyle="#ffd21f";
+
+    ctx.fillRect(
+      p.x,
+      p.y,
+      4,
+      4
+    );
+  }
+
+  ctx.globalAlpha=1;
+}
+
+
+/* =========================
+   LOOP
+========================= */
+
+function update(){
+
+  updatePlayer();
+  updateBall();
+  updateParticles();
+  checkGoal();
+
+  document.getElementById("boostBar").style.width=
+    player.boost+"%";
+
+  document.getElementById("reset").textContent=
+    player.flipTimer>0
+      ? "FLIP!"
+      : "RESET: listo";
+}
+
+function draw(){
+
+  drawBackground();
+  drawArena();
+  drawBall();
+  drawCar();
+  drawParticles();
+}
+
+function loop(){
+
+  update();
+  draw();
+
+  requestAnimationFrame(loop);
+}
+
+loop();
+
+
+/* =========================
+   ATAJOS
+=========================
+
+Flechas / A-D = mover
+ESPACIO = doble salto
+SHIFT = turbo
+F = flip/flick
+R = reiniciar
+*/
+</script>
+
+</body>
+</html>
 button{
   pointer-events:auto;
   border:2px solid #ffffff55;
